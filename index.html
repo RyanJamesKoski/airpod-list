@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><title>AirPod List</title>
+<style>
+body{margin:0;font-family:-apple-system,system-ui,sans-serif;background:#111;color:#eee;padding:20px env(safe-area-inset-right) 40px env(safe-area-inset-left)}
+.w{max-width:520px;margin:auto;padding:0 16px}
+h1{font-size:22px}
+textarea{width:100%;box-sizing:border-box;height:40vh;font-size:18px;background:#1d1d1d;color:#eee;border:1px solid #333;border-radius:12px;padding:12px}
+button{font-size:20px;border:0;border-radius:14px;padding:16px;width:100%;margin-top:12px;background:#2a7cff;color:#fff;font-weight:600}
+button.g{background:#333}
+.row{display:flex;gap:10px}.row button{flex:1}
+#cur{font-size:32px;font-weight:700;margin:24px 0 6px;min-height:40px}
+#pos{color:#888}
+.hint{color:#888;font-size:14px;line-height:1.4}
+</style></head><body><div class="w">
+<h1>🎧 AirPod List</h1>
+<div id="edit">
+<textarea id="list" placeholder="One thing per line"></textarea>
+<button id="start">Start</button>
+<p class="hint">Press your AirPod stem once to hear the next item. Double-press also goes next, triple-press goes back. Keep this tab open.</p>
+</div>
+<div id="run" hidden>
+<div id="pos"></div><div id="cur"></div>
+<div class="row"><button class="g" id="back">Back</button><button id="next">Next</button></div>
+<button class="g" id="again">Say it again</button>
+<button class="g" id="stop">Stop / edit list</button>
+</div></div>
+<script>
+const $=id=>document.getElementById(id);
+const ta=$('list');ta.value=localStorage.getItem('apl')||'';
+ta.oninput=()=>localStorage.setItem('apl',ta.value);
+let items=[],i=0,audio,last=0,lock;
+
+// Silent looping audio so the page owns the AirPod buttons
+function silentWav(){const sr=8000,n=sr*2,b=new ArrayBuffer(44+n*2),v=new DataView(b);
+ const s=(o,t)=>[...t].forEach((c,k)=>v.setUint8(o+k,c.charCodeAt(0)));
+ s(0,'RIFF');v.setUint32(4,36+n*2,true);s(8,'WAVE');s(12,'fmt ');v.setUint32(16,16,true);
+ v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);
+ v.setUint16(32,2,true);v.setUint16(34,16,true);s(36,'data');v.setUint32(40,n*2,true);
+ for(let k=0;k<n;k++)v.setInt16(44+k*2,(k%2?1:-1),true); // near-silent, not zero
+ return URL.createObjectURL(new Blob([b],{type:'audio/wav'}));}
+
+function say(t){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.rate=1;speechSynthesis.speak(u);}
+function show(){
+ const done=i>=items.length;
+ const txt=done?'Done! ✅':items[i];
+ $('cur').textContent=txt;$('pos').textContent=done?'':`${i+1} of ${items.length}`;
+ if('mediaSession' in navigator)navigator.mediaSession.metadata=new MediaMetadata({title:txt,artist:done?'AirPod List':`${i+1} of ${items.length}`});
+ say(done?'Done. That was everything.':txt);
+}
+function keep(){audio&&audio.paused&&audio.play().catch(()=>{});if('mediaSession' in navigator)navigator.mediaSession.playbackState='playing';}
+function go(d){const now=Date.now();if(now-last<700)return;last=now;
+ if(i>=items.length&&d>0)return keep();
+ i=Math.max(0,Math.min(items.length,i+d));show();keep();}
+
+$('start').onclick=async()=>{
+ items=ta.value.split('\n').map(s=>s.trim()).filter(Boolean);
+ if(!items.length)return alert('Type a list first');
+ i=0;$('edit').hidden=true;$('run').hidden=false;
+ if(!audio){audio=new Audio(silentWav());audio.loop=true;audio.volume=0.01;}
+ await audio.play().catch(e=>console.log(e));
+ const ms=navigator.mediaSession;
+ if(ms){for(const a of['play','pause','nexttrack'])try{ms.setActionHandler(a,()=>go(1))}catch(e){}
+  try{ms.setActionHandler('previoustrack',()=>go(-1))}catch(e){}
+  try{ms.setActionHandler('stop',()=>go(1))}catch(e){}}
+ try{lock=await navigator.wakeLock.request('screen')}catch(e){}
+ show();
+};
+$('next').onclick=()=>{last=0;go(1)};
+$('back').onclick=()=>{last=0;go(-1)};
+$('again').onclick=()=>say(i<items.length?items[i]:'Done');
+$('stop').onclick=()=>{audio&&audio.pause();speechSynthesis.cancel();$('run').hidden=true;$('edit').hidden=false;lock&&lock.release()};
+document.addEventListener('visibilitychange',async()=>{if(!document.hidden&&!$('run').hidden){try{lock=await navigator.wakeLock.request('screen')}catch(e){}}});
+</script></body></html>
