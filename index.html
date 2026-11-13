@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes"><title>AirPod List</title>
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="referrer" content="no-referrer"><title>AirPod List</title>
 <style>
 body{margin:0;font-family:-apple-system,system-ui,sans-serif;background:#111;color:#eee;padding:20px env(safe-area-inset-right) 40px env(safe-area-inset-left)}
 .w{max-width:520px;margin:auto;padding:0 16px}
@@ -18,7 +18,7 @@ button.g{background:#333}
 <div id="edit">
 <textarea id="list" placeholder="One thing per line"></textarea>
 <button id="start">Start</button>
-<p class="hint">Press your AirPod stem once to hear the next item. Double-press also goes next, triple-press goes back. Keep this tab open.</p>
+<p class="hint">Press your AirPod stem once to hear the next item. Double-press also goes next, triple-press goes back. Works with your phone locked — just leave this tab as the last thing playing audio.</p>
 </div>
 <div id="run" hidden>
 <div id="pos"></div><div id="cur"></div>
@@ -41,7 +41,15 @@ function silentWav(){const sr=8000,n=sr*2,b=new ArrayBuffer(44+n*2),v=new DataVi
  for(let k=0;k<n;k++)v.setInt16(44+k*2,(k%2?1:-1),true); // near-silent, not zero
  return URL.createObjectURL(new Blob([b],{type:'audio/wav'}));}
 
-function say(t){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.rate=1;speechSynthesis.speak(u);}
+let silent;
+const tts=t=>'https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q='+encodeURIComponent(t.slice(0,190));
+function idle(){audio.onended=null;audio.onerror=null;audio.src=silent;audio.loop=true;audio.volume=0.01;audio.play().catch(()=>{});}
+function say(t){
+ audio.loop=false;audio.volume=1;audio.src=tts(t);
+ audio.onended=idle;
+ audio.onerror=()=>{idle();if(!document.hidden){const u=new SpeechSynthesisUtterance(t);speechSynthesis.speak(u);}};
+ audio.play().catch(()=>audio.onerror());
+}
 function show(){
  const done=i>=items.length;
  const txt=done?'Done! ✅':items[i];
@@ -49,17 +57,16 @@ function show(){
  if('mediaSession' in navigator)navigator.mediaSession.metadata=new MediaMetadata({title:txt,artist:done?'AirPod List':`${i+1} of ${items.length}`});
  say(done?'Done. That was everything.':txt);
 }
-function keep(){audio&&audio.paused&&audio.play().catch(()=>{});if('mediaSession' in navigator)navigator.mediaSession.playbackState='playing';}
+function keep(){if('mediaSession' in navigator)navigator.mediaSession.playbackState='playing';}
 function go(d){const now=Date.now();if(now-last<700)return;last=now;
- if(i>=items.length&&d>0)return keep();
+ if(i>=items.length&&d>0){idle();return keep();}
  i=Math.max(0,Math.min(items.length,i+d));show();keep();}
 
 $('start').onclick=async()=>{
  items=ta.value.split('\n').map(s=>s.trim()).filter(Boolean);
  if(!items.length)return alert('Type a list first');
  i=0;$('edit').hidden=true;$('run').hidden=false;
- if(!audio){audio=new Audio(silentWav());audio.loop=true;audio.volume=0.01;}
- await audio.play().catch(e=>console.log(e));
+ if(!audio){silent=silentWav();audio=new Audio();audio.setAttribute('playsinline','');}
  const ms=navigator.mediaSession;
  if(ms){for(const a of['play','pause','nexttrack'])try{ms.setActionHandler(a,()=>go(1))}catch(e){}
   try{ms.setActionHandler('previoustrack',()=>go(-1))}catch(e){}
@@ -70,6 +77,6 @@ $('start').onclick=async()=>{
 $('next').onclick=()=>{last=0;go(1)};
 $('back').onclick=()=>{last=0;go(-1)};
 $('again').onclick=()=>say(i<items.length?items[i]:'Done');
-$('stop').onclick=()=>{audio&&audio.pause();speechSynthesis.cancel();$('run').hidden=true;$('edit').hidden=false;lock&&lock.release()};
+$('stop').onclick=()=>{if(audio){audio.onended=null;audio.pause();}speechSynthesis.cancel();$('run').hidden=true;$('edit').hidden=false;lock&&lock.release()};
 document.addEventListener('visibilitychange',async()=>{if(!document.hidden&&!$('run').hidden){try{lock=await navigator.wakeLock.request('screen')}catch(e){}}});
 </script></body></html>
